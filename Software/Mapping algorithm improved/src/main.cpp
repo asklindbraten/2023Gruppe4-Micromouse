@@ -56,6 +56,7 @@ std::shared_ptr<Micromouse> micromouse;
 dfr0548 motor_driver = dfr0548();
 
 Vector<Vector<std::shared_ptr<Node>>> grid;
+//inc means increased by one, dec means decreased by one.
 int act_x;
 int act_x_inc;
 int act_x_dec;
@@ -356,7 +357,7 @@ void hardLeft(){
     micromouse->setPosititon(-90);
 }
 
-//Developers: Erik/Ask. Helped with logic and theory: Lars.
+//Developers: Erik/Ask. Helped with logic and theory: Lars. "dir" means direction. 
 void update_visited_dir(){
   if (micromouse->getPosition() == 0){
     if (adj_dist_f > limit && micromouse->getMazeObj()->getGrid()[act_x][act_y_inc]->getIsVisited() == false){
