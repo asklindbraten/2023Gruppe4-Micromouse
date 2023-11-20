@@ -137,13 +137,12 @@ void loop(){
       makeMovementDecision(); //Move accordingly. 
       delay(100);
     }
-    else {
+  } else {
       onSpotRot(); //Celebration for finding goal:) 
       micromouse->getMazeObj()->printNetwork(); //print the maze network/graph.
   }
   is_goal = micromouse->isGoal(); //test to check if micromouse has entered goal.
   }
-}
 
 //Developer: Ask. //This functions takes a measurement and returns an approximate real-world distance based on that measurement. The logic behind this 
 //can be read in the blog from week 12 and in earlier blogs aswell. 
