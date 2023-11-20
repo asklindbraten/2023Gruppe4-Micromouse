@@ -1,0 +1,368 @@
+#include <Arduino.h>
+#include <ArxSmartPtr.h>
+#include <Vector.h>
+
+#include <Wire.h>
+#include <dfr0548.h>
+dfr0548 motordriver = dfr0548();
+// put function declarations here:
+
+/*extern unsigned int __bss_end;
+extern unsigned int __heap_start;
+extern void *__brkval;
+*/
+// int motorPin1_1 = 8; //left
+// int motorPin1_2 = 12;
+// int motorPin2_1 = 16; //right
+// int motorPin2_2 = 0;
+int trigger_pin_left = 12;
+int trigger_pin_front = 2;
+int trigger_pin_right = 0;
+int echo_pin_right = 1;
+int echo_pin_forward = 8;
+int echo_pin_left = 15;
+
+//sensor variables
+double speed_of_sound = 0.0343; //cm per microsecond [cm/microsec]
+double duration;
+double adj_distance;
+double right_adj;
+double left_adj;
+double front_adj;
+
+double left;
+double right;
+double front;
+double prev_right = 0;
+double prev_left = 0;
+double prev_front = 0;
+int millis_last_turn;
+
+long last_millis = 0;
+const long interval = 1000; 
+double low_lim = 10.0;
+double mid_lim_1 = 20.0;
+double mid_lim_2 = 30;
+double upper_lim = 40;
+bool goal = false;
+
+int wallCounter = 0;
+double limit = 15;
+
+void forward();
+void leftTurn();
+void rightTurn();
+void leftStrafe();
+void rightStrafe();
+void backwards();
+void stop();
+void _hardRight();
+void _hardLeft();
+double adjDistToRW(double n);
+void applyMotorMovement(double control_output, double frontSensor);
+double RLError(double left, double right);
+double readSensor(int echo, int trigger);
+double adjLowPass(double prev_x, double nv_strength, double oldv_strength, double x);
+int teller;
+
+//Ny PID test:
+// PID Controller Parameters
+double Kp = 1.0;   // Proportional gain
+double Ki = 0.1;   // Integral gain
+
+// Variables
+double setpoint = 0.0;   // Setpoint value (centered position)
+double processVariable = 0.0;  // Current value of the process variable (difference between right and left sensor readings)
+
+// Variables for PID calculation
+double error = 0.0;
+double lastError = 0.0;
+double integral = 0.0;
+
+// Output variable
+double output = 0.0;
+
+double calculatePID(double right, double left){
+  if(right < limit && left < limit){
+    if(((left + right) > 7.5) && ((left + right) < 10.5)){
+      if (millis() - last_millis > 4000){
+        stop();
+        delay(1000);
+        Serial.println("VEGG!");
+        wallCounter++;
+        last_millis = millis();
+      }
+    }
+  }
+  if (left > limit){
+    left = 3.5;
+  }
+  if (right > limit){
+    right = 3.5;
+  }
+  // Calculate error
+    processVariable = right - left;
+    error = setpoint + processVariable;
+
+    // Calculate integral using trapezoidal rule
+    integral += (error + lastError) / 2.0;
+
+    // Calculate PID output
+    output = Kp * error + Ki * integral;
+
+    // Update last error for the next iteration
+    lastError = error;
+    return output;
+}
+
+
+void setup() {
+  // put your setup code here, to run once:
+//  pinMode(motorPin1_1, OUTPUT);
+//  pinMode(motorPin1_2, OUTPUT);
+//  pinMode(motorPin2_1, OUTPUT);
+//  pinMode(motorPin2_2, OUTPUT);
+
+ pinMode(trigger_pin_left, OUTPUT);
+ pinMode(trigger_pin_right, OUTPUT);
+ pinMode(trigger_pin_front, OUTPUT);
+
+ pinMode(echo_pin_right, INPUT);
+ pinMode(echo_pin_forward, INPUT);
+ pinMode(echo_pin_left, INPUT);
+ Wire.begin();
+ Serial.begin(115200);
+ motordriver.Initialize();
+}
+
+
+void loop() {
+
+left = readSensor(echo_pin_left, trigger_pin_left);
+delay(20);
+left_adj = adjLowPass(prev_left, 0.5, 0.5, left);
+
+right = readSensor(echo_pin_right, trigger_pin_right);
+delay(20);
+right_adj = adjLowPass(prev_right, 0.5, 0.5, right);
+
+front = readSensor(echo_pin_forward, trigger_pin_front);
+delay(20);
+front_adj = adjLowPass(prev_front, 0.5, 0.5, front);
+
+
+applyMotorMovement(calculatePID(left_adj, right_adj),front_adj);
+delay(50);
+
+
+if (right_adj > limit && left_adj > limit && front_adj > limit){
+  forward();
+  delay(1000);
+}
+if (millis() - millis_last_turn > 5000){
+  if (right_adj > 15){
+    _hardRight();
+    millis_last_turn = millis();
+  }
+  if (left_adj > 15){
+    _hardLeft();
+    millis_last_turn = millis();
+  }
+  if (right_adj < 5 && left_adj < 5 && front_adj < 4 && (right_adj > left_adj)){
+  rightTurn();
+  delay(1500);
+  backwards();
+  delay(500);
+  rightTurn();
+  delay(1500);
+  stop();
+  millis_last_turn = millis();
+}
+if (right_adj < 5 && left_adj < 5 && front_adj < 4 && (right_adj < left_adj)){
+  leftTurn();
+  delay(1500);
+  backwards();
+  delay(500);
+  leftTurn();
+  delay(1500);
+  stop();
+  millis_last_turn = millis();
+}
+}
+
+
+Serial.println();
+Serial.print("Left: ");
+Serial.println(left_adj);
+Serial.print("Right: ");
+Serial.println(right_adj);  
+Serial.print("Front: ");
+Serial.println(front_adj);
+Serial.println(teller);
+Serial.println(millis());
+Serial.println(left_adj + right_adj);
+Serial.println(output);
+Serial.println("___________________");
+} 
+
+
+
+void _hardRight(){
+    forward();
+    delay(3000);
+    stop();
+    delay(100);
+    rightTurn();
+    delay(1750);
+    stop();
+    delay(100);
+}
+void _hardLeft(){
+    forward();
+    delay(3000);
+    stop();
+    delay(100);
+    leftTurn();
+    delay(1750);
+    stop();
+    delay(100);
+}
+
+double adjLowPass(double prev_x, double nv_strength, double oldv_strength, double x)
+{
+    if (prev_x == 0) {
+        prev_x = x;
+        return prev_x;
+    }
+    else {
+        double filtered_x = prev_x * oldv_strength + x * nv_strength;
+        prev_x = filtered_x;
+        return prev_x;
+    }
+}
+
+double readSensor(int echo, int trigger) {
+  digitalWrite(trigger, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigger, LOW);
+  duration = pulseIn(echo, HIGH); //length of pulse given in microseconds.
+  delay(10);
+  teller++;
+
+  duration *= (speed_of_sound/2);   //we want the distance value from A->B not A -> B -> A
+  //adj_distance2 = ((1.26056*adj_distance) + (-1.40949));//last_millis = millis()/1000; //get time in seconds 
+  return duration;
+  }
+
+  double RLError(double left, double right){
+
+  if (left > limit){
+    left = 3.5;
+  }
+  if (right > limit){
+    right = 3.5;
+  }
+  double error = setpoint + (left - right);
+  if(((left + right) > 7.5) && ((left + right) < 10)){
+      if (millis() - last_millis > 2500){
+        stop();
+        delay(150);
+        Serial.println("VEGG!");
+        wallCounter++;
+        last_millis = millis();
+      }
+  }
+  return error;
+}
+
+void applyMotorMovement(double control_output, double frontSensor){
+  if (frontSensor > 4.5){
+    if (control_output > -1 && control_output < 1){
+    forward();
+    }
+    if (control_output <= -1.75){
+    rightTurn();
+    }
+    if (control_output >= 1.75){
+    leftTurn();
+    }
+    if (control_output > -1.75 && control_output < -1){
+     rightStrafe();
+     }
+    if (control_output < 1.75 && control_output > 1){
+     leftStrafe();
+    }
+  }
+  else {
+    backwards();
+  }
+}
+
+void forward(){
+ motordriver.SetPWMWheels(1,0,1,0,1,0,1,0); 
+ Serial.println("Forward");
+}
+void stop(){
+  motordriver.SetPWMWheels(0,0,0,0,0,0,0,0);
+  Serial.println("Stop");
+}
+
+void leftTurn(){
+  motordriver.SetPWMWheels(1,0,0,1,1,0,0,1);
+  Serial.println("LeftTurn");
+}
+
+void rightTurn(){
+  motordriver.SetPWMWheels(0,1,1,0,0,1,1,0);
+  Serial.println("RIghtTurn");
+}
+
+
+void backwards(){
+  motordriver.SetPWMWheels(0,1,0,1,0,1,0,1);
+  Serial.println("Backwards");
+}
+
+void rightStrafe(){
+   motordriver.SetPWMWheels(0,0,1,0,0,0,1,0);
+   Serial.println("RIghtStrafe");
+ }
+
+ void leftStrafe(){
+   motordriver.SetPWMWheels(1,0,0,0,1,0,0,0);
+   Serial.println("LeftStrafe");
+ }
+
+// double adjDistToRW(double n){
+//   if (n >= low_lim - 3 && n <= low_lim){
+//       n = std::ceil(n/10)*10;
+//       return n;
+//   }
+//   else if (n >= mid_lim_1 - 3 && n <= mid_lim_1){
+//     n = (std::ceil(n/10)*10)+10;
+//     return n;
+//   }
+//   else if (n <= mid_lim_1 + 2 && n > mid_lim_1){
+//     n = (std::floor(n/10)*10)+10;
+//     return n;
+//   }
+//   else if (n >= mid_lim_2 - 3 && n <= mid_lim_2){
+//     n = (std::ceil(n/10)*10)+10;
+//     return n;
+//   }
+//   else if (n <= mid_lim_2 + 2 && n > mid_lim_2){
+//     n = (std::floor(n/10)*10)+10;
+//     return n;
+//   }
+//   else if (n >= upper_lim - 3 && n <= upper_lim){
+//     n = (std::ceil(n/10)*10)+10;
+//     return n;
+//   }
+//   else if ( n <= upper_lim + 2 && n > upper_lim){
+//     n = (std::floor(n/10)*10)+10;
+//     return n;
+//   }
+//   else {
+//     return n;
+//   }
+// }
